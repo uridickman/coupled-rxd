@@ -130,7 +130,7 @@ def euler_step(u_nm1,v_nm1,reaction_u,reaction_v,dt,params,u_ops,v_ops):
 def adi_pec_advance(u_nm1,v_nm1,f,g,kx,ky,dt,pred_vecs,reaction_vecs,pred_reaction_vecs,params,u_ops,v_ops,dirichlet=False):
     
     recompute_reaction(u_nm1,v_nm1,f,g,reaction_vecs,params)
-    recompute_prediction(*pred_vecs,u_nm1,v_nm1,*reaction_vecs,dt,params,u_ops,v_ops)
+    recompute_prediction(*pred_vecs,u_nm1,v_nm1,*reaction_vecs,dt/2,params,u_ops,v_ops)
     
     if dirichlet:
         enforce_dirichlet(pred_vecs[0],kx,ky)
@@ -147,7 +147,7 @@ def adi_pec_advance(u_nm1,v_nm1,f,g,kx,ky,dt,pred_vecs,reaction_vecs,pred_reacti
         enforce_dirichlet(v_next,kx,ky)
 
     recompute_reaction(u_next,v_next,f,g,reaction_vecs,params)
-    recompute_prediction(*pred_vecs,u_next,v_next,*reaction_vecs,dt,params,u_ops,v_ops)
+    recompute_prediction(*pred_vecs,u_next,v_next,*reaction_vecs,dt/2,params,u_ops,v_ops)
     
     if dirichlet:
         enforce_dirichlet(pred_vecs[0],kx,ky)
