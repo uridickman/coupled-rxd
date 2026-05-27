@@ -2,18 +2,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-def animate_solution(solution, interval=100, time_per_frame=60, dpi=100,cmap='viridis', colorbar=True, title="Solution"):
+def animate_solution(solution, sim_speed=10, fps=15, dpi=100, dt_per_frame=1.0,
+                     cmap='viridis', colorbar=True, title="Solution"):
     """
-    Animate a 3D array solution[:, :, n] over the n (timestep) axis.
+    sim_speed    : simulation time units per real second
+    fps          : frames per real second (output quality)
+    dt_per_frame : how much simulation time each saved frame represents
+    """
+    # How many frames play per real second to achieve sim_speed?
+    # frames/real_sec = sim_speed [sim_units/real_sec] / dt_per_frame [sim_units/frame]
+    effective_fps = sim_speed / dt_per_frame
+    interval = 1000 / effective_fps  # ms between frames
 
-    Parameters
-    ----------
-    solution  : np.ndarray, shape (rows, cols, timesteps)
-    interval  : int, delay between frames in milliseconds
-    cmap      : str, matplotlib colormap name
-    colorbar  : bool, whether to show a colorbar
-    title     : str, base title (timestep is appended automatically)
-    """
     vmin = solution.min()
     vmax = solution.max()
     n_steps = solution.shape[2]
@@ -29,7 +29,7 @@ def animate_solution(solution, interval=100, time_per_frame=60, dpi=100,cmap='vi
 
     def update(n):
         im.set_data(solution[:, :, n])
-        title_obj.set_text(f"{title} | t = {n*time_per_frame}")
+        title_obj.set_text(f"{title} | t = {n * dt_per_frame:.2f}")
         return im, title_obj
 
     ani = animation.FuncAnimation(
@@ -37,4 +37,4 @@ def animate_solution(solution, interval=100, time_per_frame=60, dpi=100,cmap='vi
     )
 
     plt.tight_layout()
-    return ani  # keep a reference so it isn't garbage-collected
+    return ani, effective_fps
