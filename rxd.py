@@ -54,9 +54,9 @@ class RxD_2d:
 
         assert len(reaction_functions) == self.num_equations
 
-        self.T = np.arange(0,tmax,step=dt)
-        self.num_steps = len(self.T)
+        self.num_steps = int(tmax / dt)
         self.num_saved = self.num_steps // save_every + 1
+        self.T = np.arange(0,tmax,step=dt*self.save_every)
 
         x = np.linspace(*xrange,num=kx)
         y = np.linspace(*yrange,num=ky)
@@ -187,15 +187,6 @@ class RxD_2d:
 
 
     def adi_pec_advance(self, sol_nm1, dirichlet=False):
-        """
-        ADI-PEC(EC) advance: Predict-Evaluate-Correct scheme using
-        Alternating Direction Implicit splitting.
-        
-        Step 1: Evaluate reactions at current solution
-        Step 2: Predict with Euler step
-        Step 3: ADI half-step in X (using predicted reactions)
-        Step 4: ADI half-step in Y (using corrected reactions)
-        """
 
         # --- Evaluate reactions at u^n ---
         self.recompute_reaction(sol_nm1,self.reaction_params)
