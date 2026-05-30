@@ -3,3 +3,5 @@ __pycache__/
 *.jpg
 *.gif
 gifs/
+figs/
+*.ipynb

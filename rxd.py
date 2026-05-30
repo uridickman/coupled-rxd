@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.sparse.linalg import splu,SuperLU
 from scipy.sparse import csc_array,csc_matrix,eye,lil_matrix,block_diag,save_npz
+from scipy.optimize import fsolve
 from enum import Enum
 from tqdm import trange
 from dataclasses import dataclass,field
@@ -62,11 +63,14 @@ class RxD_2d:
         y = np.linspace(*yrange,num=ky)
         self.X,self.Y = np.meshgrid(x,y,indexing="ij")
 
+        self.rng = np.random.default_rng(42)
+
         self.operators = tuple(self._make_operators(D, self.dt) for D in self.diffusion_coeffs)
 
         self.tmp_reactions              = tuple(np.zeros(kx*ky) for _ in range(self.num_equations))
         self.tmp_sol_predictions        = tuple(np.zeros(kx*ky) for _ in range(self.num_equations))
         self.tmp_reaction_predictions   = tuple(np.zeros(kx*ky) for _ in range(self.num_equations))
+        self.tmp_rhs                    = tuple(np.zeros(kx*ky) for _ in range(self.num_equations))
 
         self.sol = tuple(np.zeros((kx*ky,self.num_saved)) for _ in self.diffusion_coeffs)
 
@@ -186,72 +190,73 @@ class RxD_2d:
             self.tmp_sol_predictions[i][:] = u + dt * (ops.LAPLACIAN @ u + r)
 
 
-    def adi_pec_advance(self, sol_nm1, dirichlet=False):
-
-        # --- Evaluate reactions at u^n ---
-        self.recompute_reaction(sol_nm1,self.reaction_params)
-
-        # --- Euler prediction: u* = u^n + dt * L(u^n) + R(u^n) ---
-        self.recompute_prediction(sol_nm1, self.tmp_reactions, self.dt)
-
-        if dirichlet:
-            for pred in self.tmp_sol_predictions:
-                self.enforce_dirichlet_bcs(pred)
-
-        # --- Evaluate reactions at predicted solution ---
+    def recompute_reaction_prediction(self):
         for i, f in enumerate(self.reaction_functions):
             self.tmp_reaction_predictions[i][:] = f(*self.tmp_sol_predictions, **self.reaction_params)
 
-        # --- First ADI half-sweep: implicit in X, explicit in Y ---
-        # u^{n+1/2} = (I - dt/2 Lxx)^{-1} [ (I + dt/2 Lyy) u^n + dt/4 * (R* + R^n) ]
-        solutions_half = tuple(
-            ops.LU_A_LXX.solve(
-                ops.B_LYY @ u_nm1
-                + self.dt / 4 * (r_pred + r_curr)
-            )
-            for u_nm1, r_curr, r_pred, ops in zip(
+
+    def recompute_rhs(self, sol_nm1):
+        for i, (u_nm1, r_curr, r_pred, ops) in enumerate(zip(
                 sol_nm1,
                 self.tmp_reactions,
                 self.tmp_reaction_predictions,
                 self.operators,
-            )
-        )
+            )):
+            self.tmp_rhs[i][:] = ops.B_LYY @ u_nm1 + self.dt / 4 * (r_pred + r_curr)
 
-        if dirichlet:
-            for u_half in solutions_half:
-                self.enforce_dirichlet_bcs(u_half)
 
-        # --- Re-evaluate and re-predict at half-step solution ---
-        self.recompute_reaction(solutions_half,self.reaction_params)
-        self.recompute_prediction(solutions_half, self.tmp_reactions, self.dt / 2)
+    def advance_pec_half_step(self,sol_nm1h,dirichlet=False):
+
+        self.recompute_reaction(sol_nm1h,self.reaction_params)
+        self.recompute_prediction(sol_nm1h, self.tmp_reactions, self.dt)
+
         if dirichlet:
             for pred in self.tmp_sol_predictions:
                 self.enforce_dirichlet_bcs(pred)
 
-        # --- Re-evaluate reactions at new prediction ---
-        for i, f in enumerate(self.reaction_functions):
-            self.tmp_reaction_predictions[i][:] = f(*self.tmp_sol_predictions, **self.reaction_params)
+        self.recompute_reaction_prediction()
 
-        # --- Second ADI half-sweep: implicit in Y, explicit in X ---
-        # u^{n+1} = (I - dt/2 Lyy)^{-1} [ (I + dt/2 Lxx) u^{n+1/2} + dt/4 * (R* + R^n) ]
-        solutions_next = tuple(
-            ops.LU_A_LYY.solve(
-                ops.B_LXX @ u_half
-                + self.dt / 4 * (r_pred + r_curr)
-            )
-            for u_half, r_curr, r_pred, ops in zip(
-                solutions_half,
-                self.tmp_reactions,
-                self.tmp_reaction_predictions,
-                self.operators,
-            )
+        self.recompute_rhs(sol_nm1h)
+        sol_next = tuple(
+            ops.LU_A_LXX.solve(rhs)
+            for rhs,ops in zip(self.tmp_rhs,self.operators)
         )
 
         if dirichlet:
-            for u_next in solutions_next:
-                self.enforce_dirichlet_bcs(u_next)
+            for u_half in sol_next:
+                self.enforce_dirichlet_bcs(u_half)
+        
+        return sol_next
 
-        return solutions_next
+
+    def adi_pec_advance(self, sol_nm1, dirichlet=False):
+
+        sol_np1h = self.advance_pec_half_step(sol_nm1,dirichlet=dirichlet)
+        sol_np1 = self.advance_pec_half_step(sol_np1h,dirichlet=dirichlet)
+
+        return sol_np1
+
+
+    def steady_state(self,initial_guess=None):
+        if not initial_guess:
+            initial_guess = [0.5] * self.num_equations
+
+        def F(x):
+            return [f(*x, *self.reaction_params.values()) for f in self.reaction_functions]
+
+        return fsolve(F, initial_guess)
+
+
+    def purturbed_steady_state(self,c=0.1,initial_guess=None):
+        ss = self.steady_state(initial_guess)
+        rngs = self.rng.spawn(len(ss))
+
+        initial_values = tuple(
+            u0 * np.ones((self.kx, self.ky)) + c * rng_i.standard_normal(size=(self.kx, self.ky))
+            for u0, rng_i in zip(ss, rngs)
+        )
+
+        return initial_values
 
 
     def solve(self,initial_conditions):
@@ -261,6 +266,9 @@ class RxD_2d:
             sol[:,0] = ic_reshaped
 
         sol_nm1 = tuple(sol[:,0] for sol in self.sol)
+
+        for i, f in enumerate(self.reaction_functions):
+            self.tmp_reactions[i][:] 
         N = self.num_steps
         idx = 1
         for n in trange(1,N+1):
