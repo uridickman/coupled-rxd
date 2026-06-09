@@ -195,7 +195,7 @@ class RxD_2d:
             self.tmp_reaction_predictions[i][:] = f(*self.tmp_sol_predictions, **self.reaction_params)
 
 
-    def recompute_rhs(self, sol_nm1):
+    def recompute_rhs_x(self, sol_nm1):
         for i, (u_nm1, r_curr, r_pred, ops) in enumerate(zip(
                 sol_nm1,
                 self.tmp_reactions,
@@ -203,9 +203,19 @@ class RxD_2d:
                 self.operators,
             )):
             self.tmp_rhs[i][:] = ops.B_LYY @ u_nm1 + self.dt / 4 * (r_pred + r_curr)
+    
+    
+    def recompute_rhs_y(self, sol_nm1):
+        for i, (u_nm1, r_curr, r_pred, ops) in enumerate(zip(
+                sol_nm1,
+                self.tmp_reactions,
+                self.tmp_reaction_predictions,
+                self.operators,
+            )):
+            self.tmp_rhs[i][:] = ops.B_LXX @ u_nm1 + self.dt / 4 * (r_pred + r_curr)
 
 
-    def advance_pec_half_step(self,sol_nm1h,dirichlet=False):
+    def advance_pec_half_step_x(self,sol_nm1h,dirichlet=False):
 
         self.recompute_reaction(sol_nm1h,self.reaction_params)
         self.recompute_prediction(sol_nm1h, self.tmp_reactions, self.dt)
@@ -216,7 +226,7 @@ class RxD_2d:
 
         self.recompute_reaction_prediction()
 
-        self.recompute_rhs(sol_nm1h)
+        self.recompute_rhs_x(sol_nm1h)
         sol_next = tuple(
             ops.LU_A_LXX.solve(rhs)
             for rhs,ops in zip(self.tmp_rhs,self.operators)
@@ -229,10 +239,34 @@ class RxD_2d:
         return sol_next
 
 
+    def advance_pec_half_step_y(self,sol_nm1h,dirichlet=False):
+
+        self.recompute_reaction(sol_nm1h,self.reaction_params)
+        self.recompute_prediction(sol_nm1h, self.tmp_reactions, self.dt)
+
+        if dirichlet:
+            for pred in self.tmp_sol_predictions:
+                self.enforce_dirichlet_bcs(pred)
+
+        self.recompute_reaction_prediction()
+
+        self.recompute_rhs_y(sol_nm1h)
+        sol_next = tuple(
+            ops.LU_A_LYY.solve(rhs)
+            for rhs,ops in zip(self.tmp_rhs,self.operators)
+        )
+
+        if dirichlet:
+            for u_half in sol_next:
+                self.enforce_dirichlet_bcs(u_half)
+        
+        return sol_next
+
+
     def adi_pec_advance(self, sol_nm1, dirichlet=False):
 
-        sol_np1h = self.advance_pec_half_step(sol_nm1,dirichlet=dirichlet)
-        sol_np1 = self.advance_pec_half_step(sol_np1h,dirichlet=dirichlet)
+        sol_np1h = self.advance_pec_half_step_x(sol_nm1,dirichlet=dirichlet)
+        sol_np1 = self.advance_pec_half_step_y(sol_np1h,dirichlet=dirichlet)
 
         return sol_np1
 
