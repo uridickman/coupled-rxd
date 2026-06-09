@@ -29,7 +29,8 @@ Install essential packages:
 pip install -r requirements.txt
 ```
 
-Run the example:
+Run the examples:
 ```bash
 python gray_scott.py
+python fitzhugh_nagumo.py
 ```

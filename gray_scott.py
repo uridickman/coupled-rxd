@@ -1,5 +1,6 @@
 from rxd import RxD_2d,radial_average
 import numpy as np
+import matplotlib.pyplot as plt
 
 def f(u,v,a,b):
     return -u * v**2 + a * (1 - u)
@@ -101,7 +102,7 @@ sns.set_theme("notebook",style="darkgrid")
 
 power = np.abs(z_hat_shifted)**2
 
-r,avg = azimuthalAverage(power)
+r,avg = radial_average(power)
 
 from scipy.signal import find_peaks
 

@@ -67,6 +67,8 @@ rxd = RxD_2d(
 u0 = np.random.normal(0.0, 0.1, (kx, ky))
 v0 = np.random.normal(0.0, 0.1, (kx, ky))
 
+U, V = rxd.solve((u0, v0))
+
 fig,axs = plt.subplots(2,3,figsize=(11,7),constrained_layout=True,sharex=True,sharey=True)
 
 m = int(tmax / save_every)
