@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.sparse.linalg import splu,SuperLU
-from scipy.sparse import csc_array,csc_matrix,eye,lil_matrix,block_diag,save_npz
+from scipy.sparse import csc_array,csc_matrix,eye,lil_matrix,block_diag
 from scipy.optimize import fsolve
 from enum import Enum
 from tqdm import trange
@@ -19,6 +19,8 @@ class Operators:
     LU_A_LYY:   SuperLU
     B_LXX:      csc_matrix
     B_LYY:      csc_matrix
+    LXX:        csc_matrix
+    LYY:        csc_matrix
     LAPLACIAN:  csc_matrix
 
 
@@ -72,12 +74,10 @@ class RxD_2d:
         self.tmp_reaction_predictions   = tuple(np.zeros(kx*ky) for _ in range(self.num_equations))
         self.tmp_rhs                    = tuple(np.zeros(kx*ky) for _ in range(self.num_equations))
 
-        self.sol = tuple(np.zeros((kx*ky,self.num_saved)) for _ in self.diffusion_coeffs)
-
 
     def _make_operators(self, D, dt):
         Lxx, Lyy = self._compute_difference_operators(D)
-        return Operators(*self._setup_linear_system(Lxx, Lyy, dt), Lxx + Lyy)
+        return Operators(*self._setup_linear_system(Lxx, Lyy, dt), Lxx, Lyy, Lxx+Lyy)
 
 
     def _compute_difference_operators(self,D):
@@ -260,7 +260,8 @@ class RxD_2d:
 
 
     def solve(self,initial_conditions):
-        
+        self.sol = tuple(np.zeros((self.kx*self.ky,self.num_saved)) for _ in self.diffusion_coeffs)
+
         for ic,sol in zip(initial_conditions,self.sol):
             ic_reshaped = ic.reshape(self.kx*self.ky)
             sol[:,0] = ic_reshaped
@@ -280,3 +281,43 @@ class RxD_2d:
 
         self.sol = self._reshape_solution(self.sol)
         return self.sol
+        
+
+def radial_average(image, center=None):
+    """
+    Calculate the azimuthally averaged radial profile.
+
+    image - The 2D image
+    center - The [x,y] pixel coordinates used as the center. The default is 
+             None, which then uses the center of the image (including 
+             fracitonal pixels).
+    
+    """
+    # Calculate the indices from the image
+    y, x = np.indices(image.shape)
+
+    if not center:
+        center = np.array([(x.max()-x.min())/2.0, (x.max()-x.min())/2.0])
+
+    r = np.hypot(x - center[0], y - center[1])
+
+    # Get sorted radii
+    ind = np.argsort(r.flat)
+    r_sorted = r.flat[ind]
+    i_sorted = image.flat[ind]
+
+    # Get the integer part of the radii (bin size = 1)
+    r_int = r_sorted.astype(int)
+
+    # Find all pixels that fall within each radial bin.
+    deltar = r_int[1:] - r_int[:-1]  # Assumes all radii represented
+    rind = np.where(deltar)[0]       # location of changed radius
+    nr = rind[1:] - rind[:-1]        # number of radius bin
+    
+    # Cumulative sum to figure out sums for each radius bin
+    csim = np.cumsum(i_sorted, dtype=float)
+    tbin = csim[rind[1:]] - csim[rind[:-1]]
+
+    radial_prof = tbin / nr
+
+    return r_int[rind[:-1] + 1],radial_prof
